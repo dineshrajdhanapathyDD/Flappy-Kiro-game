@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flappy Kiro</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #2c3e50;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      border: 2px solid #1a252f;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="480" height="640"></canvas>
+  <script>
+    // === CONFIG ===
+    const CONFIG = {
+      canvas: { width: 480, height: 640 },
+      gravity: 800,
+      jumpVelocity: -300,
+      pipe: {
+        speed: 120,
+        gap: 140,
+        width: 52,
+        interval: 90,
+        bodyColor: '#4CAF50',
+        highlightColor: '#66BB6A',
+        capColor: '#388E3C',
+        outlineColor: '#2E7D32',
+        capHeight: 24,
+        capOverhang: 4
+      },
+      ground: { height: 80 },
+      kiro: {
+        x: 80,
+        width: 40,
+        height: 40,
+        hitboxInset: 2,
+        maxFallSpeed: 600
+      },
+      cloud: {
+        count: 6,
+        minOpacity: 0.2,
+        maxOpacity: 0.7,
+        minSpeed: 0.3,
+        maxSpeed: 1.5
+      },
+      wall: {
+        speed: 120,
+        gapSize: 140,
+        spacing: 350
+      },
+      difficulty: {
+        speedIncrement: 2,
+        maxSpeed: 200,
+        minGap: 100,
+        gapShrinkRate: 1,
+        gapShrinkStart: 10
+      },
+      shake: {
+        duration: 0.3,
+        intensity: 6
+      },
+      impossible: {
+        duration: 10,
+        gateColor: '#E53935',
+        gateHighlight: '#EF5350',
+        gateCapColor: '#C62828',
+        gateOutline: '#B71C1C',
+        spawnChance: 0.15
+      },
+      laser: {
+        rechargeTime: 20,
+        beamDuration: 0.3,
+        beamColor: '#FF1744',
+        beamGlow: '#FF8A80',
+        holeSize: 60
+      }
+    };
+    window.CONFIG = CONFIG;
+
+    // === CANVAS SETUP ===
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      document.body.innerHTML = '<p style="color:white;text-align:center;margin-top:40vh;">Your browser does not support HTML5 Canvas.</p>';
+    }
+
+    // === ASSET PRELOADING ===
+    const assets = {
+      kiroImg: null,
+      jumpSound: null,
+      gameOverSound: null
+    };
+
+    const kiroImg = new Image();
+    kiroImg.src = 'assets/ghosty.png';
+    kiroImg.onload = function() {
+      assets.kiroImg = kiroImg;
+    };
+    kiroImg.onerror = function() {
+      assets.kiroImg = null;
+    };
+
+    const jumpSound = new Audio('assets/jump.wav');
+    jumpSound.preload = 'auto';
+    jumpSound.oncanplaythrough = function() {
+      assets.jumpSound = jumpSound;
+    };
+    jumpSound.onerror = function() {
+      assets.jumpSound = null;
+    };
+
+    const gameOverSound = new Audio('assets/game_over.wav');
+    gameOverSound.preload = 'auto';
+    gameOverSound.oncanplaythrough = function() {
+      assets.gameOverSound = gameOverSound;
+    };
+    gameOverSound.onerror = function() {
+      assets.gameOverSound = null;
+    };
+
+    // === UTILITY FUNCTIONS ===
+    function lerp(a, b, t) {
+      return a + (b - a) * Math.min(1, Math.max(0, t));
+    }
+
+    function playSound(audio) {
+      if (!audio) return;
+      audio.currentTime = 0;
+      audio.play().catch(function() {});
+    }
+
+    // === HIGH SCORE PERSISTENCE ===
+    function loadHighScore() {
+      try {
+        var val = parseInt(localStorage.getItem('flappyKiroHigh'));
+        return isNaN(val) ? 0 : val;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function saveHighScore(score) {
+      try {
+        localStorage.setItem('flappyKiroHigh', String(score));
+      } catch (e) {
+        // localStorage unavailable (e.g., private browsing)
+      }
+    }
+
+    // === CLOUD INITIALIZATION ===
+    function initClouds() {
+      var clouds = [];
+      for (var i = 0; i < CONFIG.cloud.count; i++) {
+        var opacity = CONFIG.cloud.minOpacity + Math.random() * (CONFIG.cloud.maxOpacity - CONFIG.cloud.minOpacity);
+        var opacityRatio = (opacity - CONFIG.cloud.minOpacity) / (CONFIG.cloud.maxOpacity - CONFIG.cloud.minOpacity);
+        var speed = CONFIG.cloud.minSpeed + opacityRatio * (CONFIG.cloud.maxSpeed - CONFIG.cloud.minSpeed);
+        clouds.push({
+          x: Math.random() * CONFIG.canvas.width,
+          y: Math.random() * (CONFIG.canvas.height - CONFIG.ground.height) * 0.6,
+          width: 60 + Math.random() * 80,
+          height: 25 + Math.random() * 25,
+          opacity: opacity,
+          speed: speed
+        });
+      }
+      return clouds;
+    }
+
+    // === GAME STATE ===
+    var gameState = {
+      status: 'start',
+      score: 0,
+      highScore: loadHighScore(),
+      kiro: {
+        x: CONFIG.kiro.x,
+        y: CONFIG.canvas.height / 2 - CONFIG.kiro.height / 2,
+        width: CONFIG.kiro.width,
+        height: CONFIG.kiro.height,
+        velocity: 0
+      },
+      pipes: [],
+      clouds: initClouds(),
+      frameCount: 0,
+      scoreText: 'Score: 0 | High: ' + loadHighScore(),
+      scoreAnimTimer: 0,
+      shakeTimer: 0,
+      shakeIntensity: CONFIG.shake.intensity,
+      particles: [],
+      jumpQueued: false,
+      distanceSinceLastSpawn: 0,
+      impossibleTimer: 0,
+      gravityReversed: false,
+      gates: [],
+      laserRechargeTimer: 0,
+      laserReady: true,
+      laserBeamTimer: 0,
+      laserBeamY: 0
+    };
+
+    // === PHYSICS ENGINE ===
+    function updateKiro(kiro, dt, gravityReversed) {
+      var grav = gravityReversed ? -CONFIG.gravity : CONFIG.gravity;
+      kiro.velocity += grav * dt;
+      if (gravityReversed) {
+        kiro.velocity = Math.max(kiro.velocity, -CONFIG.kiro.maxFallSpeed);
+      } else {
+        kiro.velocity = Math.min(kiro.velocity, CONFIG.kiro.maxFallSpeed);
+      }
+      kiro.y += kiro.velocity * dt;
+      if (kiro.y <= 0) {
+        kiro.y = 0;
+        kiro.velocity = 0;
+      }
+    }
+
+    function jump(kiro, gravityReversed) {
+      kiro.velocity = gravityReversed ? -CONFIG.jumpVelocity : CONFIG.jumpVelocity;
+    }
+
+    // === PIPE MANAGER ===
+    function spawnPipe() {
+      var margin = 40;
+      var gapSize = CONFIG.pipe.gap;
+      var minGapY = gapSize / 2 + margin;
+      var maxGapY = CONFIG.canvas.height - CONFIG.ground.height - gapSize / 2 - margin;
+      var gapY = minGapY + Math.random() * (maxGapY - minGapY);
+      return {
+        x: CONFIG.canvas.width,
+        gapY: gapY,
+        gapSize: gapSize,
+        width: CONFIG.pipe.width,
+        passed: false
+      };
+    }
+
+    function updatePipes(pipes, dt) {
+      for (var i = pipes.length - 1; i >= 0; i--) {
+        pipes[i].x -= CONFIG.pipe.speed * dt;
+        if (pipes[i].x + pipes[i].width < 0) {
+          pipes.splice(i, 1);
+        }
+      }
+    }
+
+    function checkPipePass(kiro, pipes) {
+      var count = 0;
+      for (var i = 0; i < pipes.length; i++) {
+        if (!pipes[i].passed && kiro.x > pipes[i].x + pipes[i].width) {
+          pipes[i].passed = true;
+          count++;
+        }
+      }
+      return count;
+    }
+
+    // === GATE SYSTEM (Impossible Mode) ===
+    function spawnGate() {
+      var margin = 40;
+      var gapSize = CONFIG.pipe.gap;
+      var minGapY = gapSize / 2 + margin;
+      var maxGapY = CONFIG.canvas.height - CONFIG.ground.height - gapSize / 2 - margin;
+      var gapY = minGapY + Math.random() * (maxGapY - minGapY);
+      return {
+        x: CONFIG.canvas.width,
+        gapY: gapY,
+        gapSize: gapSize,
+        width: CONFIG.pipe.width,
+        passed: false,
+        isGate: true
+      };
+    }
+
+    function updateGates(gates, dt) {
+      for (var i = gates.length - 1; i >= 0; i--) {
+        gates[i].x -= CONFIG.pipe.speed * dt;
+        if (gates[i].x + gates[i].width < 0) {
+          gates.splice(i, 1);
+        }
+      }
+    }
+
+    function checkGatePass(kiro, gates) {
+      for (var i = 0; i < gates.length; i++) {
+        if (!gates[i].passed && kiro.x > gates[i].x + gates[i].width) {
+          gates[i].passed = true;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // === LASER SYSTEM ===
+    function fireLaser(state) {
+      if (!state.laserReady || state.status !== 'playing') return;
+      state.laserReady = false;
+      state.laserRechargeTimer = CONFIG.laser.rechargeTime;
+      state.laserBeamTimer = CONFIG.laser.beamDuration;
+      state.laserBeamY = state.kiro.y + state.kiro.height / 2;
+
+      // Blast holes in pipes ahead of Kiro
+      var beamY = state.laserBeamY;
+      var holeHalf = CONFIG.laser.holeSize / 2;
+      for (var i = 0; i < state.pipes.length; i++) {
+        var pipe = state.pipes[i];
+        if (pipe.x + pipe.width < state.kiro.x) continue; // behind
+        // Add a hole to this pipe at the beam's Y position
+        if (!pipe.holes) pipe.holes = [];
+        pipe.holes.push({ y: beamY, size: CONFIG.laser.holeSize });
+      }
+      // Also blast gates
+      for (var i = 0; i < state.gates.length; i++) {
+        var gate = state.gates[i];
+        if (gate.x + gate.width < state.kiro.x) continue;
+        if (!gate.holes) gate.holes = [];
+        gate.holes.push({ y: beamY, size: CONFIG.laser.holeSize });
+      }
+    }
+
+    function updateLaser(state, dt) {
+      if (state.laserBeamTimer > 0) {
+        state.laserBeamTimer -= dt;
+        if (state.laserBeamTimer < 0) state.laserBeamTimer = 0;
+      }
+      if (!state.laserReady) {
+        state.laserRechargeTimer -= dt;
+        if (state.laserRechargeTimer <= 0) {
+          state.laserRechargeTimer = 0;
+          state.laserReady = true;
+        }
+      }
+    }
+
+    // === HOLE CHECK HELPER ===
+    function isInHole(ky, kh, holes) {
+      if (!holes || holes.length === 0) return false;
+      for (var i = 0; i < holes.length; i++) {
+        var holeTop = holes[i].y - holes[i].size / 2;
+        var holeBottom = holes[i].y + holes[i].size / 2;
+        if (ky >= holeTop && ky + kh <= holeBottom) return true;
+      }
+      return false;
+    }
+
+    // === COLLISION DETECTOR ===
+    function checkCollision(kiro, pipes, gates) {
+      var inset = CONFIG.kiro.hitboxInset;
+      var kx = kiro.x + inset;
+      var ky = kiro.y + inset;
+      var kw = kiro.width - 2 * inset;
+      var kh = kiro.height - 2 * inset;
+      var groundY = CONFIG.canvas.height - CONFIG.ground.height;
+
+      // Ground collision
+      if (ky + kh >= groundY) return true;
+
+      // Ceiling collision (relevant during reversed gravity)
+      if (ky <= 0) return false; // clamped, not a death
+
+      var canvasH = CONFIG.canvas.height;
+      var groundH = CONFIG.ground.height;
+
+      // Check pipes
+      for (var i = 0; i < pipes.length; i++) {
+        var pipe = pipes[i];
+        if (pipe.x + pipe.width < kiro.x) continue;
+        if (pipe.x > kiro.x + kiro.width + CONFIG.pipe.speed) break;
+
+        var topH = pipe.gapY - pipe.gapSize / 2;
+        var bottomY = pipe.gapY + pipe.gapSize / 2;
+        var bottomH = canvasH - groundH - bottomY;
+
+        // Check top pipe collision (accounting for holes)
+        if (kx < pipe.x + pipe.width && kx + kw > pipe.x && ky < topH && ky + kh > 0) {
+          if (!isInHole(ky, kh, pipe.holes)) return true;
+        }
+        // Check bottom pipe collision (accounting for holes)
+        if (kx < pipe.x + pipe.width && kx + kw > pipe.x && ky < bottomY + bottomH && ky + kh > bottomY) {
+          if (!isInHole(ky, kh, pipe.holes)) return true;
+        }
+      }
+
+      // Check gates (same collision as pipes, with holes)
+      for (var i = 0; i < gates.length; i++) {
+        var gate = gates[i];
+        if (gate.x + gate.width < kiro.x) continue;
+        if (gate.x > kiro.x + kiro.width + CONFIG.pipe.speed) break;
+
+        var gTopH = gate.gapY - gate.gapSize / 2;
+        var gBottomY = gate.gapY + gate.gapSize / 2;
+        var gBottomH = canvasH - groundH - gBottomY;
+
+        if (kx < gate.x + gate.width && kx + kw > gate.x && ky < gTopH && ky + kh > 0) {
+          if (!isInHole(ky, kh, gate.holes)) return true;
+        }
+        if (kx < gate.x + gate.width && kx + kw > gate.x && ky < gBottomY + gBottomH && ky + kh > gBottomY) {
+          if (!isInHole(ky, kh, gate.holes)) return true;
+        }
+      }
+
+      return false;
+    }
+
+    // === SCORING ===
+    function formatScore(score, highScore) {
+      return 'Score: ' + score + ' | High: ' + highScore;
+    }
+
+    function updateHighScore(score, highScore) {
+      return Math.max(score, highScore);
+    }
+
+    // === CLOUD MANAGER ===
+    function updateClouds(clouds, dt) {
+      for (var i = 0; i < clouds.length; i++) {
+        var cloud = clouds[i];
+        cloud.x -= cloud.speed * dt;
+        if (cloud.x + cloud.width < 0) {
+          cloud.x = CONFIG.canvas.width + Math.random() * 100;
+          cloud.y = Math.random() * (CONFIG.canvas.height - CONFIG.ground.height) * 0.6;
+        }
+      }
+    }
+
+    // === GAME RESET ===
+    function resetGame(state) {
+      state.score = 0;
+      state.kiro.x = CONFIG.kiro.x;
+      state.kiro.y = CONFIG.canvas.height / 2 - CONFIG.kiro.height / 2;
+      state.kiro.velocity = 0;
+      state.pipes.length = 0;
+      state.status = 'playing';
+      state.frameCount = 0;
+      state.distanceSinceLastSpawn = 0;
+      state.shakeTimer = 0;
+      state.particles.length = 0;
+      state.scoreText = formatScore(0, state.highScore);
+      state.clouds = initClouds();
+      state.impossibleTimer = 0;
+      state.gravityReversed = false;
+      state.gates.length = 0;
+      state.laserRechargeTimer = 0;
+      state.laserReady = true;
+      state.laserBeamTimer = 0;
+      state.laserBeamY = 0;
+    }
+
+    // === RENDERER ===
+    function render(ctx, gameState, assets) {
+      var w = CONFIG.canvas.width;
+      var h = CONFIG.canvas.height;
+      var groundY = h - CONFIG.ground.height;
+
+      ctx.save();
+
+      // --- Screen shake (game over only) ---
+      if (gameState.shakeTimer > 0) {
+        var shakeFactor = gameState.shakeTimer / CONFIG.shake.duration;
+        var offsetX = (Math.random() - 0.5) * 2 * gameState.shakeIntensity * shakeFactor;
+        var offsetY = (Math.random() - 0.5) * 2 * gameState.shakeIntensity * shakeFactor;
+        ctx.translate(offsetX, offsetY);
+      }
+
+      // --- 1. Sky background ---
+      ctx.fillStyle = '#87CEEB';
+      ctx.fillRect(0, 0, w, h);
+
+      // --- 2. Clouds (semi-transparent ellipses) ---
+      for (var i = 0; i < gameState.clouds.length; i++) {
+        var cloud = gameState.clouds[i];
+        ctx.globalAlpha = cloud.opacity;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(
+          cloud.x + cloud.width / 2,
+          cloud.y + cloud.height / 2,
+          cloud.width / 2,
+          cloud.height / 2,
+          0, 0, Math.PI * 2
+        );
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1.0;
+
+      // --- 3. Pipes (two-tone green with caps, with holes) ---
+      for (var i = 0; i < gameState.pipes.length; i++) {
+        var pipe = gameState.pipes[i];
+        var topH = pipe.gapY - pipe.gapSize / 2;
+        var bottomY = pipe.gapY + pipe.gapSize / 2;
+        var capH = CONFIG.pipe.capHeight;
+        var capOverhang = CONFIG.pipe.capOverhang;
+
+        // Top pipe body
+        ctx.fillStyle = CONFIG.pipe.bodyColor;
+        ctx.fillRect(pipe.x, 0, pipe.width, topH);
+        ctx.fillStyle = CONFIG.pipe.highlightColor;
+        ctx.fillRect(pipe.x, 0, 3, topH);
+        ctx.fillStyle = CONFIG.pipe.capColor;
+        ctx.fillRect(pipe.x - capOverhang, topH - capH, pipe.width + capOverhang * 2, capH);
+        ctx.strokeStyle = CONFIG.pipe.outlineColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(pipe.x, 0, pipe.width, topH);
+        ctx.strokeRect(pipe.x - capOverhang, topH - capH, pipe.width + capOverhang * 2, capH);
+
+        // Bottom pipe body
+        ctx.fillStyle = CONFIG.pipe.bodyColor;
+        ctx.fillRect(pipe.x, bottomY, pipe.width, groundY - bottomY);
+        ctx.fillStyle = CONFIG.pipe.highlightColor;
+        ctx.fillRect(pipe.x, bottomY, 3, groundY - bottomY);
+        ctx.fillStyle = CONFIG.pipe.capColor;
+        ctx.fillRect(pipe.x - capOverhang, bottomY, pipe.width + capOverhang * 2, capH);
+        ctx.strokeStyle = CONFIG.pipe.outlineColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(pipe.x, bottomY, pipe.width, groundY - bottomY);
+        ctx.strokeRect(pipe.x - capOverhang, bottomY, pipe.width + capOverhang * 2, capH);
+
+        // Draw holes (cut-outs rendered as sky color)
+        if (pipe.holes) {
+          for (var h = 0; h < pipe.holes.length; h++) {
+            var hole = pipe.holes[h];
+            var holeTop = hole.y - hole.size / 2;
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(pipe.x - 1, holeTop, pipe.width + 2, hole.size);
+            // Hole edge highlights
+            ctx.strokeStyle = '#5BA3C9';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(pipe.x, holeTop, pipe.width, hole.size);
+          }
+        }
+      }
+
+      // --- 3b. Gates (red impossible mode gates) ---
+      for (var i = 0; i < gameState.gates.length; i++) {
+        var gate = gameState.gates[i];
+        var gTopH = gate.gapY - gate.gapSize / 2;
+        var gBottomY = gate.gapY + gate.gapSize / 2;
+        var capH = CONFIG.pipe.capHeight;
+        var capOverhang = CONFIG.pipe.capOverhang;
+
+        // Top gate body
+        ctx.fillStyle = CONFIG.impossible.gateColor;
+        ctx.fillRect(gate.x, 0, gate.width, gTopH);
+        ctx.fillStyle = CONFIG.impossible.gateHighlight;
+        ctx.fillRect(gate.x, 0, 3, gTopH);
+        ctx.fillStyle = CONFIG.impossible.gateCapColor;
+        ctx.fillRect(gate.x - capOverhang, gTopH - capH, gate.width + capOverhang * 2, capH);
+        ctx.strokeStyle = CONFIG.impossible.gateOutline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(gate.x, 0, gate.width, gTopH);
+        ctx.strokeRect(gate.x - capOverhang, gTopH - capH, gate.width + capOverhang * 2, capH);
+
+        // Bottom gate body
+        ctx.fillStyle = CONFIG.impossible.gateColor;
+        ctx.fillRect(gate.x, gBottomY, gate.width, groundY - gBottomY);
+        ctx.fillStyle = CONFIG.impossible.gateHighlight;
+        ctx.fillRect(gate.x, gBottomY, 3, groundY - gBottomY);
+        ctx.fillStyle = CONFIG.impossible.gateCapColor;
+        ctx.fillRect(gate.x - capOverhang, gBottomY, gate.width + capOverhang * 2, capH);
+        ctx.strokeStyle = CONFIG.impossible.gateOutline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(gate.x, gBottomY, gate.width, groundY - gBottomY);
+        ctx.strokeRect(gate.x - capOverhang, gBottomY, gate.width + capOverhang * 2, capH);
+
+        // Draw holes in gates
+        if (gate.holes) {
+          for (var h = 0; h < gate.holes.length; h++) {
+            var hole = gate.holes[h];
+            var holeTop = hole.y - hole.size / 2;
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(gate.x - 1, holeTop, gate.width + 2, hole.size);
+            ctx.strokeStyle = '#5BA3C9';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(gate.x, holeTop, gate.width, hole.size);
+          }
+        }
+      }
+
+      // --- 4. Ground ---
+      ctx.fillStyle = '#2c3e50';
+      ctx.fillRect(0, groundY, w, CONFIG.ground.height);
+      // Subtle top edge line
+      ctx.strokeStyle = '#1a252f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(w, groundY);
+      ctx.stroke();
+
+      // --- 5. Kiro sprite ---
+      var kiro = gameState.kiro;
+      var centerX = kiro.x + kiro.width / 2;
+      var centerY = kiro.y + kiro.height / 2;
+      // Velocity-based tilt
+      var targetAngle = Math.max(-0.5, Math.min(0.8, kiro.velocity * 0.002));
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(targetAngle);
+      if (assets.kiroImg && assets.kiroImg.complete && assets.kiroImg.naturalWidth > 0) {
+        ctx.drawImage(assets.kiroImg, -kiro.width / 2, -kiro.height / 2, kiro.width, kiro.height);
+      } else {
+        // Fallback: white rounded rectangle
+        ctx.fillStyle = '#ffffff';
+        var rx = -kiro.width / 2;
+        var ry = -kiro.height / 2;
+        var radius = 8;
+        ctx.beginPath();
+        ctx.moveTo(rx + radius, ry);
+        ctx.lineTo(rx + kiro.width - radius, ry);
+        ctx.quadraticCurveTo(rx + kiro.width, ry, rx + kiro.width, ry + radius);
+        ctx.lineTo(rx + kiro.width, ry + kiro.height - radius);
+        ctx.quadraticCurveTo(rx + kiro.width, ry + kiro.height, rx + kiro.width - radius, ry + kiro.height);
+        ctx.lineTo(rx + radius, ry + kiro.height);
+        ctx.quadraticCurveTo(rx, ry + kiro.height, rx, ry + kiro.height - radius);
+        ctx.lineTo(rx, ry + radius);
+        ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // --- 5b. Laser beam effect ---
+      if (gameState.laserBeamTimer > 0) {
+        var beamAlpha = gameState.laserBeamTimer / CONFIG.laser.beamDuration;
+        // Glow
+        ctx.save();
+        ctx.globalAlpha = beamAlpha * 0.4;
+        ctx.fillStyle = CONFIG.laser.beamGlow;
+        ctx.fillRect(kiro.x + kiro.width, gameState.laserBeamY - 4, w - kiro.x - kiro.width, 8);
+        ctx.globalAlpha = beamAlpha;
+        // Core beam
+        ctx.fillStyle = CONFIG.laser.beamColor;
+        ctx.fillRect(kiro.x + kiro.width, gameState.laserBeamY - 1.5, w - kiro.x - kiro.width, 3);
+        ctx.restore();
+      }
+
+      // --- 6. HUD score text ---
+      var scoreScale = 1.0;
+      if (gameState.scoreAnimTimer > 0) {
+        // Pop effect: scale up briefly then ease back
+        var t = gameState.scoreAnimTimer;
+        scoreScale = 1.0 + 0.3 * t;
+      }
+      ctx.save();
+      ctx.font = '18px monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      var scoreX = w / 2;
+      var scoreY = groundY + CONFIG.ground.height / 2;
+      ctx.translate(scoreX, scoreY);
+      ctx.scale(scoreScale, scoreScale);
+      ctx.fillText(gameState.scoreText, 0, 0);
+      ctx.restore();
+
+      // --- 6b. Impossible mode countdown timer ---
+      if (gameState.impossibleTimer > 0 && gameState.status === 'playing') {
+        var timeLeft = Math.ceil(gameState.impossibleTimer);
+        ctx.save();
+        ctx.font = 'bold 24px monospace';
+        ctx.fillStyle = CONFIG.impossible.gateColor;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('IMPOSSIBLE: ' + timeLeft + 's', 12, 12);
+        ctx.restore();
+      }
+
+      // --- 6c. Laser recharge timer (bottom-left) ---
+      if (gameState.status === 'playing') {
+        ctx.save();
+        ctx.font = '16px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        var laserY = groundY - 8;
+        if (gameState.laserReady) {
+          ctx.fillStyle = CONFIG.laser.beamColor;
+          ctx.fillText('LASER: READY [L]', 12, laserY);
+        } else {
+          var rechargeLeft = Math.ceil(gameState.laserRechargeTimer);
+          ctx.fillStyle = '#999999';
+          ctx.fillText('LASER: ' + rechargeLeft + 's', 12, laserY);
+        }
+        ctx.restore();
+      }
+
+      // --- 7. Overlay messages ---
+      if (gameState.status === 'start') {
+        // Pulsing "Tap or Press Space to Start"
+        var pulse = 0.75 + 0.25 * Math.sin(Date.now() * 0.003 * 3);
+        ctx.globalAlpha = pulse;
+        ctx.font = '22px monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Tap or Press Space to Start', w / 2, h / 2 - 60);
+        ctx.globalAlpha = 1.0;
+      }
+
+      if (gameState.status === 'gameOver') {
+        // Semi-transparent dark overlay
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1.0;
+
+        // "Game Over" text
+        ctx.font = 'bold 36px monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Game Over', w / 2, h / 2 - 30);
+
+        // Restart prompt with pulsing opacity
+        var restartPulse = 0.75 + 0.25 * Math.sin(Date.now() * 0.003 * 3);
+        ctx.globalAlpha = restartPulse;
+        ctx.font = '18px monospace';
+        ctx.fillText('Tap or Press Space to Restart', w / 2, h / 2 + 20);
+        ctx.globalAlpha = 1.0;
+      }
+
+      ctx.restore(); // Restore from screen shake save
+    }
+
+    // === GAME LOOP ===
+    var rafId = null;
+    var lastTimestamp = 0;
+    var gameOverTime = 0;
+    var idleElapsed = 0;
+    var kiroBaseY = gameState.kiro.y;
+
+    function gameLoop(timestamp) {
+      if (gameState.status !== 'playing') return;
+
+      var rawDt = (timestamp - lastTimestamp) / 1000;
+      var dt = Math.min(rawDt, 0.05);
+      lastTimestamp = timestamp;
+
+      // 1. Process queued jump
+      if (gameState.jumpQueued) {
+        jump(gameState.kiro, gameState.gravityReversed);
+        gameState.jumpQueued = false;
+      }
+
+      // 2. Update Kiro physics
+      updateKiro(gameState.kiro, dt, gameState.gravityReversed);
+
+      // 3. Spawn pipes (and occasionally gates) based on distance traveled
+      gameState.distanceSinceLastSpawn += CONFIG.pipe.speed * dt;
+      if (gameState.distanceSinceLastSpawn >= CONFIG.wall.spacing) {
+        // Chance to spawn a red gate instead of a pipe (only if impossible mode not active)
+        if (!gameState.gravityReversed && gameState.impossibleTimer <= 0 && Math.random() < CONFIG.impossible.spawnChance) {
+          gameState.gates.push(spawnGate());
+        } else {
+          gameState.pipes.push(spawnPipe());
+        }
+        gameState.distanceSinceLastSpawn -= CONFIG.wall.spacing;
+      }
+
+      // 4. Update pipes and gates
+      updatePipes(gameState.pipes, dt);
+      updateGates(gameState.gates, dt);
+
+      // 5. Update clouds
+      updateClouds(gameState.clouds, dt);
+
+      // 6. Check collisions (pipes + gates)
+      if (checkCollision(gameState.kiro, gameState.pipes, gameState.gates)) {
+        gameState.status = 'gameOver';
+        gameOverTime = Date.now();
+        playSound(assets.gameOverSound);
+        saveHighScore(gameState.highScore);
+        gameState.shakeTimer = CONFIG.shake.duration;
+        cancelAnimationFrame(rafId);
+        // Switch to idle loop for cloud drift and shake decay
+        rafId = requestAnimationFrame(idleLoop);
+        return;
+      }
+
+      // 7. Check pipe passes
+      var passed = checkPipePass(gameState.kiro, gameState.pipes);
+      if (passed > 0) {
+        gameState.score += passed;
+        gameState.highScore = updateHighScore(gameState.score, gameState.highScore);
+        gameState.scoreText = formatScore(gameState.score, gameState.highScore);
+        gameState.scoreAnimTimer = 1.0;
+      }
+
+      // 7b. Check gate passes (activate impossible mode)
+      if (checkGatePass(gameState.kiro, gameState.gates)) {
+        gameState.gravityReversed = true;
+        gameState.impossibleTimer = CONFIG.impossible.duration;
+        // Also count as a score
+        gameState.score += 1;
+        gameState.highScore = updateHighScore(gameState.score, gameState.highScore);
+        gameState.scoreText = formatScore(gameState.score, gameState.highScore);
+        gameState.scoreAnimTimer = 1.0;
+      }
+
+      // 7c. Update impossible mode timer
+      if (gameState.impossibleTimer > 0) {
+        gameState.impossibleTimer -= dt;
+        if (gameState.impossibleTimer <= 0) {
+          gameState.impossibleTimer = 0;
+          gameState.gravityReversed = false;
+        }
+      }
+
+      // 8. Update shake timer
+      if (gameState.shakeTimer > 0) {
+        gameState.shakeTimer -= dt;
+        if (gameState.shakeTimer < 0) gameState.shakeTimer = 0;
+      }
+
+      // 8b. Update laser
+      updateLaser(gameState, dt);
+
+      // 9. Update score anim timer
+      if (gameState.scoreAnimTimer > 0) {
+        gameState.scoreAnimTimer -= dt * 5;
+        if (gameState.scoreAnimTimer < 0) gameState.scoreAnimTimer = 0;
+      }
+
+      // 10. Render frame
+      render(ctx, gameState, assets);
+
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    // === IDLE LOOP (Start Screen) ===
+    function idleLoop(timestamp) {
+      if (gameState.status !== 'start' && gameState.status !== 'gameOver') return;
+
+      var rawDt = lastTimestamp ? (timestamp - lastTimestamp) / 1000 : 0;
+      var dt = Math.min(rawDt, 0.05);
+      lastTimestamp = timestamp;
+      idleElapsed += dt;
+
+      // Update clouds
+      updateClouds(gameState.clouds, dt);
+
+      // Idle bob for Kiro (sine wave)
+      if (gameState.status === 'start') {
+        gameState.kiro.y = kiroBaseY + Math.sin(idleElapsed * 2) * 5;
+      }
+
+      // Update shake timer during game over
+      if (gameState.shakeTimer > 0) {
+        gameState.shakeTimer -= dt;
+        if (gameState.shakeTimer < 0) gameState.shakeTimer = 0;
+      }
+
+      render(ctx, gameState, assets);
+
+      rafId = requestAnimationFrame(idleLoop);
+    }
+
+    // === INPUT HANDLER ===
+    function handleInput(e) {
+      // Laser fire on L key
+      if (e.type === 'keydown' && e.code === 'KeyL') {
+        e.preventDefault();
+        fireLaser(gameState);
+        return;
+      }
+
+      if (e.type === 'keydown' && e.code !== 'Space') return;
+      if (e.code === 'Space') e.preventDefault();
+      if (e.type === 'touchstart') e.preventDefault();
+
+      if (gameState.status === 'start') {
+        resetGame(gameState);
+        lastTimestamp = performance.now();
+        gameState.distanceSinceLastSpawn = 0;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(gameLoop);
+      } else if (gameState.status === 'playing') {
+        gameState.jumpQueued = true;
+        playSound(assets.jumpSound);
+      } else if (gameState.status === 'gameOver') {
+        // Debounce: ignore input for 300ms after game over
+        if (Date.now() - gameOverTime < 300) return;
+        resetGame(gameState);
+        lastTimestamp = performance.now();
+        gameState.distanceSinceLastSpawn = 0;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(gameLoop);
+      }
+    }
+
+    // Register listeners once
+    document.addEventListener('keydown', handleInput);
+    canvas.addEventListener('click', handleInput);
+    canvas.addEventListener('touchstart', handleInput);
+
+    // === START: kick off idle loop ===
+    lastTimestamp = 0;
+    rafId = requestAnimationFrame(idleLoop);
+  </script>
+</body>
+</html>

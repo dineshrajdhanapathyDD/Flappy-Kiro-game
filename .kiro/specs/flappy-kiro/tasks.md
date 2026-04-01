@@ -6,16 +6,16 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
 
 ## Tasks
 
-- [ ] 1. Scaffold HTML file with CONFIG and data models
-  - [ ] 1.1 Create `index.html` with HTML boilerplate, canvas element, embedded CSS for centering, and the `CONFIG` object
+- [x] 1. Scaffold HTML file with CONFIG and data models
+  - [x] 1.1 Create `index.html` with HTML boilerplate, canvas element, embedded CSS for centering, and the `CONFIG` object
     - Define the full `CONFIG` object as specified in the design (canvas, gravity, jumpVelocity, pipe, ground, kiro, cloud)
     - Create the canvas element (480×640) and obtain the 2D rendering context
     - Preload `assets/ghosty.png` as an Image, `assets/jump.wav` and `assets/game_over.wav` as Audio objects with `onerror` fallbacks
     - Initialize the `gameState` object with status `'start'`, score 0, highScore from localStorage, default KiroState, empty pipes array, and initial clouds
     - _Requirements: 1.1, 1.2, 1.3, 7.5_
 
-- [ ] 2. Implement core game logic functions
-  - [ ] 2.1 Implement Physics Engine — `updateKiro(kiro)` function
+- [x] 2. Implement core game logic functions
+  - [x] 2.1 Implement Physics Engine — `updateKiro(kiro)` function
     - Apply `CONFIG.gravity` to `kiro.velocity`, update `kiro.y`, clamp `kiro.y` to >= 0
     - Implement jump by setting `kiro.velocity = CONFIG.jumpVelocity`
     - _Requirements: 2.1, 2.3, 2.4_
@@ -32,7 +32,7 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
     - **Property 3: Kiro is clamped to canvas top**
     - **Validates: Requirements 2.4**
 
-  - [ ] 2.5 Implement Pipe Manager — `spawnPipe()`, `updatePipes(pipes)`, `checkPipePass(kiro, pipes)`
+  - [x] 2.5 Implement Pipe Manager — `spawnPipe()`, `updatePipes(pipes)`, `checkPipePass(kiro, pipes)`
     - `spawnPipe()` creates a PipeState with randomized gapY within valid range, gapSize = CONFIG.pipe.gap, width = CONFIG.pipe.width
     - `updatePipes(pipes)` moves each pipe left by CONFIG.pipe.speed and removes pipes whose right edge < 0
     - `checkPipePass(kiro, pipes)` detects when kiro.x passes a pipe's right edge, marks pipe as passed, returns newly passed count
@@ -50,7 +50,7 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
     - **Property 6: Off-screen pipes are removed**
     - **Validates: Requirements 3.5**
 
-  - [ ] 2.9 Implement Collision Detector — `checkCollision(kiro, pipes)`
+  - [x] 2.9 Implement Collision Detector — `checkCollision(kiro, pipes)`
     - Return true if Kiro's bounding box overlaps any pipe rectangle (top pipe or bottom pipe) or if Kiro's bottom edge >= ground y
     - Ground y = CONFIG.canvas.height - CONFIG.ground.height
     - _Requirements: 4.1, 4.2, 4.3_
@@ -59,8 +59,8 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
     - **Property 7: Collision detection correctness**
     - **Validates: Requirements 4.1, 4.2**
 
-- [ ] 3. Implement scoring, high score, and cloud systems
-  - [ ] 3.1 Implement scoring and high score functions
+- [x] 3. Implement scoring, high score, and cloud systems
+  - [x] 3.1 Implement scoring and high score functions
     - `formatScore(score, highScore)` returns `"Score: {score} | High: {highScore}"`
     - `updateHighScore(score, highScore)` returns `Math.max(score, highScore)`
     - `saveHighScore(score)` writes to localStorage key `flappyKiroHigh` with try-catch
@@ -83,7 +83,7 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
     - **Property 11: High score persistence round trip**
     - **Validates: Requirements 5.4**
 
-  - [ ] 3.6 Implement Cloud Manager — `initClouds()`, `updateClouds(clouds)`
+  - [x] 3.6 Implement Cloud Manager — `initClouds()`, `updateClouds(clouds)`
     - `initClouds()` generates CONFIG.cloud.count clouds with random positions, opacity in [minOpacity, maxOpacity], speed derived from opacity (higher opacity = faster speed)
     - `updateClouds(clouds)` moves each cloud left by its speed, wraps to right side when off-screen
     - _Requirements: 7.2, 7.3, 8.1, 8.3_
@@ -96,7 +96,7 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
     - **Property 14: Cloud wrapping prevents off-screen drift**
     - **Validates: Requirements 8.3**
 
-  - [ ] 3.9 Implement `resetGame(gameState)` function
+  - [x] 3.9 Implement `resetGame(gameState)` function
     - Reset score to 0, reposition Kiro to default, clear pipes array, set status to `'playing'`
     - _Requirements: 6.4_
 
@@ -107,29 +107,29 @@ Build a single-file browser game (index.html) with embedded CSS and JavaScript u
 - [ ] 4. Checkpoint — Verify all logic functions
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement renderer and audio
-  - [ ] 5.1 Implement the `render(ctx, gameState, assets)` function
+- [x] 5. Implement renderer and audio
+  - [x] 5.1 Implement the `render(ctx, gameState, assets)` function
     - Draw layers in order: sky background (light blue fill), clouds (semi-transparent ellipses), pipes (green rectangles with sketchy style), ground (dark rectangle), Kiro sprite (ghosty.png or fallback rectangle), HUD score text, overlay messages (start prompt or game over message)
     - _Requirements: 1.2, 1.3, 5.2, 7.1, 7.2, 7.4, 7.5, 7.6_
 
-  - [ ] 5.2 Implement Audio Manager — `playSound(audioElement)` function
+  - [x] 5.2 Implement Audio Manager — `playSound(audioElement)` function
     - Rewind audio to start and play; handle cases where audio failed to load
     - _Requirements: 2.2, 6.1_
 
-- [ ] 6. Wire game loop and input handling
-  - [ ] 6.1 Implement Input Handler
+- [x] 6. Wire game loop and input handling
+  - [x] 6.1 Implement Input Handler
     - Add event listeners for `click`, `keydown` (Space), and `touchstart`
     - In `start` state: call `resetGame()`, start game loop
     - In `playing` state: apply jump velocity, play jump.wav
     - In `gameOver` state: call `resetGame()`, restart game loop
     - _Requirements: 1.4, 2.1, 2.2, 6.4_
 
-  - [ ] 6.2 Implement the main game loop using `requestAnimationFrame`
+  - [x] 6.2 Implement the main game loop using `requestAnimationFrame`
     - Each frame: update Kiro physics, spawn pipes on interval (using frameCount), update pipes, update clouds, check collisions (transition to gameOver on hit, play game_over.wav, save high score), check pipe passes (increment score, update high score), render frame
     - On game over: stop the loop, display game over overlay
     - _Requirements: 1.4, 2.3, 3.1, 4.1, 4.2, 4.3, 5.1, 5.3, 6.1, 6.2, 6.3, 8.1, 8.2, 8.3_
 
-  - [ ] 6.3 Implement start screen rendering
+  - [x] 6.3 Implement start screen rendering
     - On load: render initial scene with Kiro at default position, clouds drifting, start prompt text
     - Animate clouds on the start screen using a separate animation loop or the same loop in idle mode
     - _Requirements: 1.2, 1.3, 1.4_
