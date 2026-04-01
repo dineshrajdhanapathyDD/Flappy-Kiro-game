@@ -4,6 +4,10 @@ A retro browser-based endless side-scroller game where you guide Ghosty the ghos
 
 ![Flappy Kiro](img/example-ui.png)
 
+## Live Demo
+
+👉 [Play Flappy Kiro](https://master.d3m64sdk9z09yq.amplifyapp.com/)
+
 ## How to Play
 
 1. Open `index.html` in a browser (or serve via `python -m http.server 8080`)
