@@ -229,6 +229,10 @@ All tunable constants live in a single `CONFIG` object exposed on `window.CONFIG
 | `laser.rechargeTime` | 20 | Laser cooldown (s) |
 | `laser.holeSize` | 60 | Size of laser holes (px) |
 
+## Credits
+
+Created by DD. Built with [Kiro](https://kiro.dev).
+
 ## License
 
 See [LICENCE.md](LICENCE.md).
